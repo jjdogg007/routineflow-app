@@ -58,6 +58,118 @@
             position: relative;
         }
 
+        .notification-bell {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            z-index: 100;
+        }
+
+        .notification-bell:hover {
+            transform: scale(1.1);
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: var(--danger-color);
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 0.7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .notification-popup {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            width: 300px;
+            background: var(--white-background);
+            border-radius: var(--border-radius-card);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .notification-popup.active {
+            display: block;
+        }
+
+        .notification-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: var(--text-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .notification-close {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            color: var(--light-text-color);
+            padding: 0;
+        }
+
+        .notification-item {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .notification-item:hover {
+            background: var(--light-background);
+        }
+
+        .notification-item:last-child {
+            border-bottom: none;
+        }
+
+        .notification-item.unread {
+            background: var(--active-background-light);
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .notification-title {
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 4px;
+            font-size: 0.9rem;
+        }
+
+        .notification-message {
+            color: var(--light-text-color);
+            font-size: 0.8rem;
+            line-height: 1.3;
+        }
+
+        .notification-time {
+            color: var(--light-text-color);
+            font-size: 0.7rem;
+            margin-top: 4px;
+        }
+
+        .no-notifications {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--light-text-color);
+        }
+
         .header h1 {
             font-size: 1.8rem;
             font-weight: 700;
@@ -543,8 +655,25 @@
 <body>
     <div class="container">
         <div class="header">
+            <div class="notification-bell" id="notification-bell" onclick="toggleNotificationPopup(event)">
+                🔔
+                <div class="notification-badge hidden" id="notification-badge">0</div>
+            </div>
             <h1>RoutineFlow</h1>
             <p>Design your ideal day. Every day.</p>
+            
+            <div class="notification-popup" id="notification-popup">
+                <div class="notification-header">
+                    <span>Notifications</span>
+                    <button class="notification-close" onclick="closeNotificationPopup()">&times;</button>
+                </div>
+                <div id="notification-list">
+                    <div class="no-notifications">
+                        <div style="font-size: 2rem; margin-bottom: 10px;">🔕</div>
+                        <div>No new notifications</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="nav-tabs">
@@ -692,6 +821,8 @@
         // Application State
         let routines = JSON.parse(localStorage.getItem('routines') || '[]');
         let analytics = JSON.parse(localStorage.getItem('analytics') || '{"streak": 0, "completed": 0, "totalTime": 0, "weeklyData": [0,0,0,0,0,0,0], "totalPoints": 0, "achievements": {}}'); // Added totalPoints and achievements
+        let notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+        let unreadCount = 0;
 
         // Define achievements and their criteria
         const achievementsList = {
@@ -722,6 +853,158 @@
             //     criteria: (stats) => stats.completed >= 10 && stats.streak >= 5
             // }
         };
+
+        // Load and render employee portal functionality
+        function loadAndRenderPortal() {
+            // Preserve notification bell functionality during portal loading
+            const bellElement = document.getElementById('notification-bell');
+            if (bellElement) {
+                // Ensure click handler is properly attached without replacing element
+                bellElement.onclick = function(e) {
+                    e.stopPropagation();
+                    toggleNotificationPopup(e);
+                };
+            }
+            
+            // Initialize or update notification system
+            updateNotificationBadge();
+            renderNotificationList();
+            
+            // Ensure portal elements are properly initialized
+            initializePortalEventListeners();
+            
+            console.log('Employee portal loaded and rendered successfully');
+        }
+
+        // Initialize portal-specific event listeners
+        function initializePortalEventListeners() {
+            // Ensure notification popup stays properly contained
+            const popup = document.getElementById('notification-popup');
+            if (popup) {
+                popup.addEventListener('click', function(e) {
+                    e.stopPropagation(); // Prevent popup from closing when clicking inside
+                });
+            }
+        }
+
+        // Notification Management Functions
+        function addNotification(title, message, type = 'info') {
+            const notification = {
+                id: Date.now(),
+                title: title,
+                message: message,
+                type: type, // 'info', 'success', 'achievement', 'reminder'
+                timestamp: new Date().toISOString(),
+                read: false
+            };
+            
+            notifications.unshift(notification); // Add to beginning of array
+            
+            // Limit to 50 notifications to prevent excessive storage
+            if (notifications.length > 50) {
+                notifications = notifications.slice(0, 50);
+            }
+            
+            saveNotifications();
+            updateNotificationBadge();
+            renderNotificationList();
+            
+            return notification;
+        }
+
+        function markNotificationAsRead(notificationId) {
+            const notification = notifications.find(n => n.id === notificationId);
+            if (notification && !notification.read) {
+                notification.read = true;
+                saveNotifications();
+                updateNotificationBadge();
+                renderNotificationList();
+            }
+        }
+
+        function markAllNotificationsAsRead() {
+            notifications.forEach(n => n.read = true);
+            saveNotifications();
+            updateNotificationBadge();
+            renderNotificationList();
+        }
+
+        function toggleNotificationPopup(e) {
+            e.stopPropagation();
+            const popup = document.getElementById('notification-popup');
+            popup.classList.toggle('active');
+            
+            // Mark notifications as read when popup is opened
+            if (popup.classList.contains('active') && unreadCount > 0) {
+                setTimeout(() => {
+                    markAllNotificationsAsRead();
+                }, 1000); // Mark as read after 1 second of viewing
+            }
+        }
+
+        function closeNotificationPopup() {
+            document.getElementById('notification-popup').classList.remove('active');
+        }
+
+        function updateNotificationBadge() {
+            unreadCount = notifications.filter(n => !n.read).length;
+            const badge = document.getElementById('notification-badge');
+            
+            if (unreadCount > 0) {
+                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function renderNotificationList() {
+            const listContainer = document.getElementById('notification-list');
+            
+            if (notifications.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="no-notifications">
+                        <div style="font-size: 2rem; margin-bottom: 10px;">🔕</div>
+                        <div>No notifications yet</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            listContainer.innerHTML = notifications.map(notification => {
+                const timeAgo = getTimeAgo(new Date(notification.timestamp));
+                return `
+                    <div class="notification-item ${notification.read ? '' : 'unread'}" 
+                         onclick="markNotificationAsRead(${notification.id})">
+                        <div class="notification-title">${notification.title}</div>
+                        <div class="notification-message">${notification.message}</div>
+                        <div class="notification-time">${timeAgo}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getTimeAgo(date) {
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+            
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            if (diffHours < 24) return `${diffHours}h ago`;
+            if (diffDays < 7) return `${diffDays}d ago`;
+            return date.toLocaleDateString();
+        }
+
+        function saveNotifications() {
+            try {
+                localStorage.setItem('notifications', JSON.stringify(notifications));
+            } catch (e) {
+                console.error("Error saving notifications to local storage:", e);
+            }
+        }
 
 
         let currentRoutine = null;
@@ -769,6 +1052,63 @@
             displayAchievements(); // NEW: Display achievements on load
             requestNotificationPermission(); // Request permission on load
             loadSavedProgress(); // Load progress on page load
+            loadAndRenderPortal(); // Load employee portal functionality
+            initializeEmployeeNotifications(); // Add initial employee notifications
+        });
+
+        // Initialize employee portal notifications
+        function initializeEmployeeNotifications() {
+            // Check if this is the first visit today
+            const today = new Date().toDateString();
+            const lastVisit = localStorage.getItem('lastVisitDate');
+            
+            if (lastVisit !== today) {
+                // Daily welcome message
+                addNotification(
+                    '👋 Welcome back to RoutineFlow!',
+                    'Ready to have a productive day? Check out your routines and start building great habits!',
+                    'info'
+                );
+                
+                // Streak reminder if user has an active streak
+                if (analytics.streak > 0) {
+                    addNotification(
+                        `🔥 ${analytics.streak} Day Streak!`,
+                        `You're on fire! Keep your streak going by completing a routine today.`,
+                        'info'
+                    );
+                }
+                
+                localStorage.setItem('lastVisitDate', today);
+            }
+            
+            // Add reminder if no routine completed today
+            setTimeout(() => {
+                const todayCompletions = analytics.weeklyData[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
+                if (todayCompletions === 0 && notifications.filter(n => n.type === 'reminder' && new Date(n.timestamp).toDateString() === today).length === 0) {
+                    addNotification(
+                        '⏰ Routine Reminder',
+                        "Haven't started a routine yet today? Even 5 minutes can make a difference!",
+                        'reminder'
+                    );
+                }
+            }, 10000); // Show after 10 seconds if no activity
+        }
+
+        // Global window click listener with proper containment checks
+        window.addEventListener('click', function(e) {
+            const notificationBell = document.getElementById('notification-bell');
+            const notificationPopup = document.getElementById('notification-popup');
+            
+            // Only close popup if clicking outside both bell and popup
+            if (notificationPopup && notificationPopup.classList.contains('active') && e.target) {
+                // Check if click is outside both bell and popup
+                if (notificationBell && notificationPopup && 
+                    !notificationBell.contains(e.target) && 
+                    !notificationPopup.contains(e.target)) {
+                    closeNotificationPopup();
+                }
+            }
         });
 
         // Tab switching logic
@@ -927,9 +1267,17 @@
                 saveAnalytics(); // Save analytics immediately
                 updateAnalytics(); // Update display
                 showNotification('Task Complete!', `"${task.name}" finished. +${pointsEarned} points!`);
+                
+                // Add to notification bell
+                addNotification(
+                    'Task Completed! ✅', 
+                    `You finished "${task.name}" and earned ${pointsEarned} points!`, 
+                    'success'
+                );
             } else {
                 // Fallback notification if task details aren't perfectly aligned
                 showNotification('Task Complete!', `Task finished.`);
+                addNotification('Task Completed! ✅', 'Great job finishing your task!', 'success');
             }
 
             showCompletionAnimation(); // Visual feedback
@@ -951,9 +1299,13 @@
             clearInterval(timer); // Stop the timer
             timer = null; // Clear timer reference
 
+            // Calculate total time and points for this routine
+            const routineTime = currentRoutine.tasks.reduce((sum, task) => sum + task.duration, 0);
+            const routinePoints = currentRoutine.tasks.reduce((sum, task) => sum + (task.duration * 10), 0);
+
             // Update analytics
             analytics.completed++;
-            analytics.totalTime += currentRoutine.tasks.reduce((sum, task) => sum + task.duration, 0);
+            analytics.totalTime += routineTime;
             
             // Streak logic
             const today = new Date();
@@ -979,6 +1331,13 @@
 
             // Update weekly data (map Sunday=0 to index 6 for array, Monday=1 to index 0 etc.)
             analytics.weeklyData[today.getDay() === 0 ? 6 : today.getDay() - 1]++;
+            
+            // Add routine completion notification
+            addNotification(
+                `${currentRoutine.emoji} Routine Complete!`,
+                `Congratulations! You finished "${currentRoutine.name}" (${routineTime} minutes, ${routinePoints} points). Current streak: ${analytics.streak} days! 🔥`,
+                'success'
+            );
             
             saveAnalytics();
             updateAnalytics();
@@ -1227,6 +1586,14 @@
                         analytics.achievements[key] = true; // Mark as unlocked
                         unlockedNewAchievement = true;
                         showNotification('Achievement Unlocked!', `${achievement.emoji} ${achievement.name}`);
+                        
+                        // Add to notification bell
+                        addNotification(
+                            `${achievement.emoji} Achievement Unlocked!`,
+                            `Congratulations! You earned "${achievement.name}" for your awesome progress!`,
+                            'achievement'
+                        );
+                        
                         // Optionally, show a special animation for achievements
                         showAchievementPop(achievement.emoji);
                     }
